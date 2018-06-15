@@ -197,7 +197,6 @@
     <Compile Include="Helpers\HttpContextFactory.cs" />
     <Compile Include="Helpers\ObjectFactory.cs" />
     <Compile Include="Objects\Models\AdaptersModel.cs" />
-    <Compile Include="Objects\Models\AttributesModel.cs" />
     <Compile Include="Objects\Models\TestModel.cs" />
     <Compile Include="Objects\Views\AllTypesView.cs" />
     <Compile Include="Objects\Views\TestView.cs" />
