@@ -1,5 +1,5 @@
 ﻿/*!
- * Datalist 5.5.0
+ * Datalist 6.0.0
  * https://github.com/NonFactors/MVC5.Datalist
  *
  * Copyright © NonFactors
@@ -8,34 +8,52 @@
  * http://www.opensource.org/licenses/mit-license.php
  */
 var MvcDatalistFilter = (function () {
-    function MvcDatalistFilter(group) {
-        this.page = group.attr('data-page');
-        this.rows = group.attr('data-rows');
-        this.sort = group.attr('data-sort');
-        this.order = group.attr('data-order');
-        this.search = group.attr('data-search');
-        this.additionalFilters = group.attr('data-filters').split(',').filter(Boolean);
+    function MvcDatalistFilter(datalist) {
+        var data = datalist.group.dataset;
+
+        this.datalist = datalist;
+        this.sort = data.sort;
+        this.order = data.order;
+        this.search = data.search;
+        this.page = parseInt(data.page);
+        this.rows = parseInt(data.rows);
+        this.additional = data.filters.split(',').filter(Boolean);
     }
 
     MvcDatalistFilter.prototype = {
-        getQuery: function (search) {
-            var filter = $.extend({}, this, search);
-            var query = '?search=' + encodeURIComponent(filter.search) +
-                '&sort=' + encodeURIComponent(filter.sort) +
-                '&order=' + encodeURIComponent(filter.order) +
-                '&rows=' + encodeURIComponent(filter.rows) +
-                '&page=' + encodeURIComponent(filter.page) +
-                (filter.checkIds || '') +
-                (filter.ids || '');
+        formUrl: function (search) {
+            var encode = encodeURIComponent;
+            var url = this.datalist.url.split('?')[0];
+            var urlQuery = this.datalist.url.split('?')[1];
+            var filter = this.datalist.extend({ ids: [], checkIds: [], selected: [] }, this, search);
+            var query = '?' + (urlQuery ? urlQuery + '&' : '') + 'search=' + encode(filter.search);
 
-            for (var i = 0; i < this.additionalFilters.length; i++) {
-                var filters = $('[name="' + this.additionalFilters[i] + '"]');
+            for (var i = 0; i < filter.additional.length; i++) {
+                var filters = document.querySelectorAll('[name="' + filter.additional[i] + '"]');
                 for (var j = 0; j < filters.length; j++) {
-                    query += '&' + encodeURIComponent(this.additionalFilters[i]) + '=' + encodeURIComponent(filters[j].value);
+                    query += '&' + encode(filter.additional[i]) + '=' + encode(filters[j].value);
                 }
             }
 
-            return query;
+            for (i = 0; i < filter.selected.length; i++) {
+                query += '&selected=' + encode(filter.selected[i].Id);
+            }
+
+            for (i = 0; i < filter.checkIds.length; i++) {
+                query += '&checkIds=' + encode(filter.checkIds[i].value);
+            }
+
+            for (i = 0; i < filter.ids.length; i++) {
+                query += '&ids=' + encode(filter.ids[i].value);
+            }
+
+            query += '&sort=' + encode(filter.sort) +
+                '&order=' + encode(filter.order) +
+                '&rows=' + encode(filter.rows) +
+                '&page=' + encode(filter.page) +
+                '&_=' + Date.now();
+
+            return url + query;
         }
     };
 
@@ -43,228 +61,264 @@ var MvcDatalistFilter = (function () {
 }());
 var MvcDatalistDialog = (function () {
     function MvcDatalistDialog(datalist) {
-        this.datalist = datalist;
-        this.filter = datalist.filter;
-        this.title = datalist.group.attr('data-title');
-        this.instance = $('#' + datalist.group.attr('data-dialog'));
+        var dialog = this;
+        var element = document.getElementById(datalist.group.dataset.dialog);
 
-        this.pager = this.instance.find('ul');
-        this.table = this.instance.find('table');
-        this.tableHead = this.instance.find('thead');
-        this.tableBody = this.instance.find('tbody');
-        this.error = this.instance.find('.datalist-error');
-        this.search = this.instance.find('.datalist-search');
-        this.rows = this.instance.find('.datalist-rows input');
-        this.loader = this.instance.find('.datalist-dialog-loader');
-        this.selector = this.instance.find('.datalist-selector button');
+        dialog.element = element;
+        dialog.datalist = datalist;
+        dialog.title = datalist.group.dataset.title;
+        dialog.options = { preserveSearch: true, rows: { min: 1, max: 99 }, openDelay: 100 };
 
-        this.initOptions();
+        dialog.overlay = new MvcDatalistOverlay(this);
+        dialog.table = element.querySelector('table');
+        dialog.tableHead = element.querySelector('thead');
+        dialog.tableBody = element.querySelector('tbody');
+        dialog.rows = element.querySelector('.datalist-rows');
+        dialog.pager = element.querySelector('.datalist-pager');
+        dialog.header = element.querySelector('.datalist-title');
+        dialog.search = element.querySelector('.datalist-search');
+        dialog.selector = element.querySelector('.datalist-selector');
+        dialog.closeButton = element.querySelector('.datalist-close');
+        dialog.error = element.querySelector('.datalist-dialog-error');
+        dialog.loader = element.querySelector('.datalist-dialog-loader');
     }
 
     MvcDatalistDialog.prototype = {
-        set: function (options) {
-            options = options || {};
-            $.extend(this.options.dialog, options.dialog);
-            $.extend(this.options.spinner, options.spinner);
-            $.extend(this.options.resizable, options.resizable);
-        },
-        initOptions: function () {
-            var dialog = this;
-
-            dialog.options = {
-                dialog: {
-                    position: { my: 'center top', at: 'center top+50px', of: window, within: window },
-                    classes: { 'ui-dialog': 'datalist-widget' },
-                    dialogClass: 'datalist-widget',
-                    title: dialog.title,
-                    draggable: false,
-                    autoOpen: false,
-                    width: 'auto',
-                    modal: true
-                },
-                spinner: {
-                    min: 1,
-                    max: 99,
-                    change: function () {
-                        this.value = dialog.limitRows(this.value);
-                        dialog.filter.rows = this.value;
-                        dialog.filter.page = 0;
-
-                        dialog.refresh();
-                    }
-                },
-                resizable: {
-                    minWidth: 455,
-                    handles: 'w,e',
-                    stop: function () {
-                        $(this).css('height', 'auto');
-                    }
-                }
-            };
-        },
-
         open: function () {
             var dialog = this;
-            dialog.loader.hide();
-            dialog.error.hide().html(dialog.lang('Error'));
+            var filter = dialog.datalist.filter;
+            MvcDatalistDialog.prototype.current = this;
+
+            dialog.error.style.display = 'none';
+            dialog.loader.style.display = 'none';
+            dialog.header.innerText = dialog.title;
+            dialog.rows.value = dialog.limitRows(filter.rows);
             dialog.selected = dialog.datalist.selected.slice();
-            dialog.rows.val(dialog.limitRows(dialog.filter.rows));
-            dialog.search.attr('placeholder', dialog.lang('Search'));
-            dialog.selector.parent().css('display', dialog.datalist.multi ? '' : 'none');
-            dialog.filter.search = dialog.datalist.options.preserveSearch ? dialog.filter.search : '';
-            dialog.selector.text(dialog.lang('Select').replace('{0}', dialog.datalist.selected.length));
+            dialog.error.innerHTML = dialog.datalist.lang.error;
+            dialog.search.placeholder = dialog.datalist.lang.search;
+            filter.search = dialog.options.preserveSearch ? filter.search : '';
+            dialog.selector.style.display = dialog.datalist.multi ? '' : 'none';
+            dialog.selector.innerText = dialog.datalist.lang.select.replace('{0}', dialog.datalist.selected.length);
 
             dialog.bind();
             dialog.refresh();
-            dialog.search.val(dialog.filter.search);
+            dialog.search.value = filter.search;
 
             setTimeout(function () {
-                if (dialog.loading) {
-                    dialog.loader.show();
+                if (dialog.isLoading) {
+                    dialog.loader.style.opacity = 1;
+                    dialog.loader.style.display = '';
                 }
 
-                dialog.instance.dialog('open');
-            }, 100);
+                dialog.overlay.show();
+            }, dialog.options.openDelay);
         },
         close: function () {
-            this.instance.dialog('close');
-        },
+            var dialog = MvcDatalistDialog.prototype.current;
+            dialog.datalist.group.classList.remove('datalist-error');
 
+            dialog.datalist.select(dialog.selected, true);
+            dialog.datalist.search.focus();
+            dialog.datalist.stopLoading();
+            dialog.overlay.hide();
+
+            MvcDatalistDialog.prototype.current = null;
+        },
         refresh: function () {
             var dialog = this;
-            dialog.loading = true;
-            dialog.error.fadeOut(300);
+            dialog.isLoading = true;
+            dialog.error.style.opacity = 0;
+            dialog.error.style.display = '';
+            dialog.loader.style.display = '';
             var loading = setTimeout(function () {
-                dialog.loader.fadeIn(300);
-            }, 300);
+                dialog.loader.style.opacity = 1;
+            }, dialog.datalist.options.loadingDelay);
 
-            $.ajax({
-                cache: false,
-                url: dialog.datalist.url + dialog.filter.getQuery() + dialog.selected.map(function (x) { return '&selected=' + x.DatalistIdKey; }).join(''),
-                success: function (data) {
-                    dialog.loading = false;
-                    clearTimeout(loading);
-                    dialog.render(data);
-                },
-                error: function () {
-                    dialog.loading = false;
-                    clearTimeout(loading);
-                    dialog.render();
-                }
+            dialog.datalist.startLoading({ selected: dialog.selected }, function (data) {
+                dialog.isLoading = false;
+                clearTimeout(loading);
+                dialog.render(data);
+            }, function () {
+                dialog.isLoading = false;
+                clearTimeout(loading);
+                dialog.render();
             });
         },
 
         render: function (data) {
-            this.loader.fadeOut(300);
-            this.tableHead.empty();
-            this.tableBody.empty();
-            this.pager.empty();
+            var dialog = this;
+            dialog.pager.innerHTML = '';
+            dialog.tableBody.innerHTML = '';
+            dialog.tableHead.innerHTML = '';
+            dialog.loader.style.opacity = 0;
+
+            setTimeout(function () {
+                dialog.loader.style.display = 'none';
+            }, dialog.datalist.options.loadingDelay);
 
             if (data) {
-                this.renderHeader(data.Columns);
-                this.renderBody(data.Columns, data.Rows);
-                this.renderFooter(data.FilteredRows);
+                dialog.error.style.display = 'none';
 
-                this.instance.parent().position({ my: 'left top', at: 'left top+50px', of: window, within: window });
-                this.instance.dialog({
-                    position: this.options.dialog.position || { my: 'center top', at: 'center top+50px', of: window, within: window }
-                });
+                dialog.renderHeader(data.Columns);
+                dialog.renderBody(data.Columns, data.Rows);
+                dialog.renderFooter(data.FilteredRows);
             } else {
-                this.error.fadeIn(300);
+                dialog.error.style.opacity = 1;
             }
         },
         renderHeader: function (columns) {
-            var tr = document.createElement('tr');
-            var selection = document.createElement('th');
+            var row = document.createElement('tr');
 
             for (var i = 0; i < columns.length; i++) {
                 if (!columns[i].Hidden) {
-                    tr.appendChild(this.createHeaderColumn(columns[i]));
+                    row.appendChild(this.createHeaderColumn(columns[i]));
                 }
             }
 
-            tr.appendChild(selection);
-            this.tableHead.append(tr);
+            row.appendChild(document.createElement('th'));
+            this.tableHead.appendChild(row);
         },
         renderBody: function (columns, rows) {
-            if (rows.length == 0) {
-                var empty = this.createEmptyRow(columns);
-                empty.children[0].innerHTML = this.lang('NoData');
-                empty.className = 'datalist-empty';
+            if (!rows.length) {
+                var empty = document.createElement('td');
+                var row = document.createElement('tr');
 
-                this.tableBody.append(empty);
+                empty.innerHTML = this.datalist.lang.noData;
+                empty.colSpan = columns.length + 1;
+                row.className = 'datalist-empty';
+
+                this.tableBody.appendChild(row);
+                row.appendChild(empty);
             }
 
             var hasSplit = false;
-            var hasSelection = rows.length && this.datalist.indexOf(this.selected, rows[0].DatalistIdKey) >= 0;
+            var hasSelection = rows.length && this.datalist.indexOf(this.selected, rows[0].Id) >= 0;
 
             for (var i = 0; i < rows.length; i++) {
-                var tr = this.createDataRow(rows[i]);
+                var row = this.createDataRow(rows[i]);
                 var selection = document.createElement('td');
 
                 for (var j = 0; j < columns.length; j++) {
                     if (!columns[j].Hidden) {
-                        var td = document.createElement('td');
-                        td.className = columns[j].CssClass || '';
-                        td.innerText = rows[i][columns[j].Key] || '';
+                        var data = document.createElement('td');
+                        data.className = columns[j].CssClass || '';
+                        data.innerText = rows[i][columns[j].Key] || '';
 
-                        tr.appendChild(td);
+                        row.appendChild(data);
                     }
                 }
 
-                tr.appendChild(selection);
+                row.appendChild(selection);
 
-                if (!hasSplit && hasSelection && this.datalist.indexOf(this.selected, rows[i].DatalistIdKey) < 0) {
-                    var separator = this.createEmptyRow(columns);
+                if (!hasSplit && hasSelection && this.datalist.indexOf(this.selected, rows[i].Id) < 0) {
+                    var separator = document.createElement('tr');
+                    var empty = document.createElement('td');
+
                     separator.className = 'datalist-split';
-                    hasSplit = true;
+                    empty.colSpan = columns.length + 1;
 
-                    this.tableBody.append(separator);
+                    this.tableBody.appendChild(separator);
+                    separator.appendChild(empty);
+
+                    hasSplit = true;
                 }
 
-                this.tableBody.append(tr);
+                this.tableBody.appendChild(row);
             }
         },
         renderFooter: function (filteredRows) {
-            this.totalRows = filteredRows + this.selected.length;
-            var totalPages = Math.ceil(filteredRows / this.filter.rows);
+            var dialog = this;
+            var filter = dialog.datalist.filter;
 
-            if (totalPages > 0) {
-                var startingPage = Math.floor(this.filter.page / 5) * 5;
+            dialog.totalRows = filteredRows + dialog.selected.length;
+            var totalPages = Math.ceil(filteredRows / filter.rows);
+            filter.page = dialog.limitPage(filter.page);
 
-                if (totalPages > 5 && this.filter.page > 0) {
-                    this.renderPage('&laquo', 0);
-                    this.renderPage('&lsaquo;', this.filter.page - 1);
+            if (totalPages) {
+                var startingPage = Math.floor(filter.page / 4) * 4;
+
+                if (filter.page && 4 < totalPages) {
+                    dialog.renderPage('&laquo', 0);
+                    dialog.renderPage('&lsaquo;', filter.page - 1);
                 }
 
-                for (var i = startingPage; i < totalPages && i < startingPage + 5; i++) {
-                    this.renderPage(i + 1, i);
+                for (var i = startingPage; i < totalPages && i < startingPage + 4; i++) {
+                    dialog.renderPage(i + 1, i);
                 }
 
-                if (totalPages > 5 && this.filter.page < totalPages - 1) {
-                    this.renderPage('&rsaquo;', this.filter.page + 1);
-                    this.renderPage('&raquo;', totalPages - 1);
+                if (4 < totalPages && filter.page < totalPages - 1) {
+                    dialog.renderPage('&rsaquo;', filter.page + 1);
+                    dialog.renderPage('&raquo;', totalPages - 1);
                 }
             } else {
-                this.renderPage(1, 0);
+                filter.page = 0;
+                dialog.renderPage(1, 0);
             }
         },
+        renderPage: function (text, value) {
+            var page = document.createElement('button');
+            var filter = this.datalist.filter;
+            page.type = 'button';
+            var dialog = this;
 
+            if (filter.page == value) {
+                page.className = 'active';
+            }
+
+            page.innerHTML = text;
+            page.addEventListener('click', function () {
+                if (filter.page != value) {
+                    filter.page = dialog.limitPage(value);
+
+                    dialog.refresh();
+                }
+            });
+
+            dialog.pager.appendChild(page);
+        },
+
+        createHeaderColumn: function (column) {
+            var header = document.createElement('th');
+            var filter = this.datalist.filter;
+            var dialog = this;
+
+            if (column.CssClass) {
+                header.classList.add(column.CssClass);
+            }
+
+            if (filter.sort == column.Key) {
+                header.classList.add('datalist-' + filter.order.toLowerCase());
+            }
+
+            header.innerText = column.Header || '';
+            header.addEventListener('click', function () {
+                filter.order = filter.sort == column.Key && filter.order == 'Asc' ? 'Desc' : 'Asc';
+                filter.sort = column.Key;
+
+                dialog.refresh();
+            });
+
+            return header;
+        },
         createDataRow: function (data) {
             var dialog = this;
             var datalist = this.datalist;
             var row = document.createElement('tr');
-            if (datalist.indexOf(dialog.selected, data.DatalistIdKey) >= 0) {
+            if (datalist.indexOf(dialog.selected, data.Id) >= 0) {
                 row.className = 'selected';
             }
 
-            $(row).on('click.datalist', function () {
-                var index = datalist.indexOf(dialog.selected, data.DatalistIdKey);
+            row.addEventListener('click', function () {
+                if (!window.getSelection().isCollapsed) {
+                    return;
+                }
+
+                var index = datalist.indexOf(dialog.selected, data.Id);
                 if (index >= 0) {
                     if (datalist.multi) {
                         dialog.selected.splice(index, 1);
 
-                        $(this).removeClass('selected');
+                        this.classList.remove('selected');
                     }
                 } else {
                     if (datalist.multi) {
@@ -273,507 +327,698 @@ var MvcDatalistDialog = (function () {
                         dialog.selected = [data];
                     }
 
-                    $(this).addClass('selected');
+                    this.classList.add('selected');
                 }
 
                 if (datalist.multi) {
-                    dialog.selector.text(dialog.lang('Select').replace('{0}', dialog.selected.length));
+                    dialog.selector.innerText = dialog.datalist.lang.select.replace('{0}', dialog.selected.length);
                 } else {
-                    datalist.select(dialog.selected, true);
-
                     dialog.close();
-
-                    datalist.search.focus();
                 }
             });
 
             return row;
         },
-        createEmptyRow: function (columns) {
-            var row = document.createElement('tr');
-            var td = document.createElement('td');
-            row.appendChild(td);
 
-            td.setAttribute('colspan', columns.length + 1);
-
-            return row;
+        limitPage: function (value) {
+            return Math.max(0, Math.min(value, Math.ceil((this.totalRows - this.selected.length) / this.datalist.filter.rows) - 1));
         },
-        createHeaderColumn: function (column) {
-            var header = document.createElement('th');
-            header.innerText = column.Header || '';
-            var filter = this.filter;
+        limitRows: function (value) {
+            value = Math.max(this.options.rows.min, Math.min(parseInt(value), this.options.rows.max));
+
+            return isNaN(value) ? this.datalist.filter.rows : value;
+        },
+
+        bind: function () {
             var dialog = this;
 
-            if (column.CssClass) {
-                header.className = column.CssClass;
-            }
+            dialog.selector.addEventListener('click', dialog.close);
+            dialog.rows.addEventListener('change', dialog.rowsChanged);
+            dialog.closeButton.addEventListener('click', dialog.close);
+            dialog.search.addEventListener('keyup', dialog.searchChanged);
+        },
+        rowsChanged: function () {
+            var dialog = MvcDatalistDialog.prototype.current;
+            var rows = dialog.limitRows(this.value);
+            this.value = rows;
 
-            if (filter.sort == column.Key) {
-                header.className += ' datalist-' + filter.order.toLowerCase();
-            }
+            if (dialog.datalist.filter.rows != rows) {
+                dialog.datalist.filter.rows = rows;
+                dialog.datalist.filter.page = 0;
 
-            $(header).on('click.datalist', function () {
-                if (filter.sort == column.Key) {
-                    filter.order = filter.order == 'Asc' ? 'Desc' : 'Asc';
-                } else {
-                    filter.order = 'Asc';
-                }
-
-                filter.sort = column.Key;
                 dialog.refresh();
-            });
-
-            return header;
+            }
         },
-        renderPage: function (text, value) {
-            var content = document.createElement('a');
-            var page = document.createElement('li');
-            content.setAttribute('href', '#');
-            page.appendChild(content);
-            content.innerHTML = text;
-            var dialog = this;
+        searchChanged: function (e) {
+            var input = this;
+            var dialog = MvcDatalistDialog.prototype.current;
 
-            if (dialog.filter.page == value) {
-                page.className = 'active';
-            } else {
-                $(content).on('click.datalist', function (e) {
-                    e.preventDefault();
-
-                    var expectedPages = Math.ceil((dialog.totalRows - dialog.selected.length) / dialog.filter.rows);
-                    if (value < expectedPages) {
-                        dialog.filter.page = value;
-                    } else {
-                        dialog.filter.page = expectedPages - 1;
-                    }
+            dialog.datalist.stopLoading();
+            clearTimeout(dialog.searching);
+            dialog.searching = setTimeout(function () {
+                if (dialog.datalist.filter.search != input.value || e.keyCode == 13) {
+                    dialog.datalist.filter.search = input.value;
+                    dialog.datalist.filter.page = 0;
 
                     dialog.refresh();
-                });
-            }
-
-            dialog.pager.append(page);
-        },
-
-        limitRows: function (value) {
-            var spinner = this.options.spinner;
-
-            return Math.min(Math.max(parseInt(value), spinner.min), spinner.max) || this.filter.rows;
-        },
-
-        lang: function (key) {
-            return $.fn.datalist.lang[key];
-        },
-        bind: function () {
-            var timeout;
-            var dialog = this;
-
-            dialog.instance.dialog().dialog('destroy');
-            dialog.instance.dialog(dialog.options.dialog);
-            dialog.instance.dialog('option', 'close', function () {
-                if (dialog.datalist.multi) {
-                    dialog.datalist.select(dialog.selected, true);
-                    dialog.datalist.search.focus();
                 }
-            });
-
-            dialog.instance.parent().resizable().resizable('destroy');
-            dialog.instance.parent().resizable(dialog.options.resizable);
-
-            dialog.search.off('keyup.datalist').on('keyup.datalist', function (e) {
-                var input = this;
-                clearTimeout(timeout);
-                timeout = setTimeout(function () {
-                    if (dialog.filter.search != input.value || e.keyCode == 13) {
-                        dialog.filter.search = input.value;
-                        dialog.filter.page = 0;
-
-                        dialog.refresh();
-                    }
-                }, 500);
-            });
-
-            dialog.rows.spinner().spinner('destroy');
-            dialog.rows.spinner(dialog.options.spinner);
-            dialog.rows.off('keyup.datalist').on('keyup.datalist', function (e) {
-                if (e.which == 13) {
-                    this.blur();
-                    this.focus();
-                }
-            });
-
-            dialog.selector.off('click.datalist').on('click.datalist', function () {
-                dialog.close();
-            });
+            }, dialog.datalist.options.searchDelay);
         }
     };
 
     return MvcDatalistDialog;
 }());
-var MvcDatalist = (function () {
-    function MvcDatalist(group, options) {
-        this.readonly = group.attr('data-readonly') == 'true';
-        this.multi = group.attr('data-multi') == 'true';
-        this.filter = new MvcDatalistFilter(group);
-        this.for = group.attr('data-for');
-        this.url = group.attr('data-url');
-        this.selected = [];
+var MvcDatalistOverlay = (function () {
+    function MvcDatalistOverlay(dialog) {
+        this.element = this.getClosestOverlay(dialog.element);
+        this.dialog = dialog;
 
-        this.group = group;
-        this.search = group.find('.datalist-input');
-        this.browse = group.find('.datalist-browse');
-        this.control = group.find('.datalist-control');
-        this.valueContainer = group.find('.datalist-values');
-        this.values = this.valueContainer.find('.datalist-value');
-
-        this.dialog = new MvcDatalistDialog(this);
-        this.initOptions();
-        this.set(options);
-
-        this.methods = {
-            selectSingle: this.selectSingle,
-            selectFirst: this.selectFirst,
-            reload: this.reload,
-            browse: this.open
-        };
-        this.reload(false);
-        this.cleanUp();
         this.bind();
     }
 
-    MvcDatalist.prototype = {
-        set: function (options) {
-            options = options || {};
-
-            this.options.preserveSearch = options.preserveSearch == null ? this.options.preserveSearch : options.preserveSearch;
-            this.search.autocomplete($.extend(this.options.autocomplete, options.autocomplete));
-            this.setReadonly(options.readonly == null ? this.readonly : options.readonly);
-            this.events = $.extend(this.events, options.events);
-            this.dialog.set(options);
-        },
-        initOptions: function () {
-            var datalist = this;
-
-            this.options = {
-                preserveSearch: true,
-                autocomplete: {
-                    source: function (request, response) {
-                        $.ajax({
-                            url: datalist.url + datalist.filter.getQuery({ search: request.term, rows: 20 }),
-                            success: function (data) {
-                                response($.grep(data.Rows, function (row) {
-                                    return !datalist.multi || datalist.indexOf(datalist.selected, row.DatalistIdKey) < 0;
-                                }).map(function (row) {
-                                    return {
-                                        label: row.DatalistAcKey,
-                                        value: row.DatalistAcKey,
-                                        data: row
-                                    };
-                                }));
-                            },
-                            error: function () {
-                                datalist.stopLoading();
-                            }
-                        });
-                    },
-                    search: function () {
-                        datalist.startLoading(300);
-                    },
-                    response: function () {
-                        datalist.stopLoading();
-                    },
-                    select: function (e, selection) {
-                        if (datalist.multi) {
-                            datalist.select(datalist.selected.concat(selection.item.data), true);
-                        } else {
-                            datalist.select([selection.item.data], true);
-                        }
-
-                        e.preventDefault();
-                    },
-                    minLength: 1,
-                    delay: 500
-                }
-            };
-        },
-        setReadonly: function (readonly) {
-            this.readonly = readonly;
-
-            if (readonly) {
-                this.search.autocomplete('disable').attr({ readonly: 'readonly', tabindex: -1 });
-                this.group.addClass('datalist-readonly');
-            } else {
-                this.search.autocomplete('enable').removeAttr('readonly').removeAttr('tabindex');
-                this.group.removeClass('datalist-readonly');
+    MvcDatalistOverlay.prototype = {
+        getClosestOverlay: function (element) {
+            var overlay = element;
+            while (overlay.parentNode && !overlay.classList.contains('datalist-overlay')) {
+                overlay = overlay.parentNode;
             }
 
-            this.resizeDatalistSearch();
+            if (overlay == document) {
+                throw new Error('Datalist dialog has to be inside a datalist-overlay.');
+            }
+
+            return overlay;
         },
 
-        open: function () {
+        show: function () {
+            var body = document.body.getBoundingClientRect();
+            if (body.left + body.right < window.innerWidth) {
+                var scrollWidth = window.innerWidth - document.body.clientWidth;
+                var paddingRight = parseFloat(getComputedStyle(document.body).paddingRight);
+
+                document.body.style.paddingRight = (paddingRight + scrollWidth) + 'px';
+            }
+
+            document.body.classList.add('datalist-open');
+            this.element.style.display = 'block';
+        },
+        hide: function () {
+            document.body.classList.remove('datalist-open');
+            document.body.style.paddingRight = '';
+            this.element.style.display = '';
+        },
+
+        bind: function () {
+            this.element.addEventListener('click', this.onClick);
+        },
+        onClick: function (e) {
+            var targetClasses = (e.target || e.srcElement).classList;
+
+            if (targetClasses.contains('datalist-overlay') || targetClasses.contains('datalist-wrapper')) {
+                MvcDatalistDialog.prototype.current.close();
+            }
+        }
+    };
+
+    return MvcDatalistOverlay;
+}());
+var MvcDatalistAutocomplete = (function () {
+    function MvcDatalistAutocomplete(datalist) {
+        this.datalist = datalist;
+        this.activeItem = null;
+        this.element = document.createElement('ul');
+        this.element.className = 'datalist-autocomplete';
+        this.options = { minLength: 1, rows: 20, sort: datalist.filter.sort, order: datalist.filter.order };
+    }
+
+    MvcDatalistAutocomplete.prototype = {
+        search: function (term) {
+            var autocomplete = this;
+            var datalist = autocomplete.datalist;
+
+            datalist.stopLoading();
+            clearTimeout(autocomplete.searching);
+            autocomplete.searching = setTimeout(function () {
+                if (term.length < autocomplete.options.minLength || datalist.readonly) {
+                    autocomplete.hide();
+
+                    return;
+                }
+
+                datalist.startLoading({
+                    search: term,
+                    rows: autocomplete.options.rows,
+                    page: 0,
+                    sort: autocomplete.options.sort,
+                    order: autocomplete.options.order
+                }, function (data) {
+                    autocomplete.hide();
+
+                    data = data.Rows.filter(function (row) {
+                        return !datalist.multi || datalist.indexOf(datalist.selected, row.Id) < 0;
+                    });
+
+                    for (var i = 0; i < data.length; i++) {
+                        var item = document.createElement('li');
+                        item.innerText = data[i].Label;
+                        item.dataset.id = data[i].Id;
+
+                        autocomplete.element.appendChild(item);
+                        autocomplete.bind(item, [data[i]]);
+                    }
+
+                    if (data.length) {
+                        autocomplete.show();
+                    }
+                });
+            }, autocomplete.datalist.options.searchDelay);
+        },
+        previous: function () {
+            if (!this.element.parentNode) {
+                this.search(this.datalist.search.value);
+
+                return;
+            }
+
+            if (this.activeItem) {
+                this.activeItem.classList.remove('active');
+                this.activeItem = this.activeItem.previousSibling;
+            } else {
+                this.activeItem = this.element.lastElementChild;
+            }
+
+            if (this.activeItem) {
+                this.activeItem.classList.add('active');
+            }
+        },
+        next: function () {
+            if (!this.element.parentNode) {
+                this.search(this.datalist.search.value);
+
+                return;
+            }
+
+            if (this.activeItem) {
+                this.activeItem.classList.remove('active');
+                this.activeItem = this.activeItem.nextSibling
+            } else {
+                this.activeItem = this.element.firstElementChild;
+            }
+
+            if (this.activeItem) {
+                this.activeItem.classList.add('active');
+            }
+        },
+        show: function () {
+            var search = this.datalist.search.getBoundingClientRect();
+
+            this.element.style.left = (search.left + window.pageXOffset) + 'px';
+            this.element.style.top = (search.top + search.height + window.pageYOffset) + 'px';
+
+            document.body.appendChild(this.element);
+        },
+        hide: function () {
+            this.activeItem = null;
+            this.element.innerHTML = '';
+
+            if (this.element.parentNode) {
+                document.body.removeChild(this.element);
+            }
+        },
+
+        bind: function (item, data) {
+            var autocomplete = this;
+            var datalist = autocomplete.datalist;
+
+            item.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+            });
+
+            item.addEventListener('click', function () {
+                if (datalist.multi) {
+                    datalist.select(datalist.selected.concat(data), true);
+                } else {
+                    datalist.select(data, true);
+                }
+
+                datalist.stopLoading();
+                autocomplete.hide();
+            });
+
+            item.addEventListener('mouseenter', function () {
+                if (autocomplete.activeItem) {
+                    autocomplete.activeItem.classList.remove('active');
+                }
+
+                this.classList.add('active');
+                autocomplete.activeItem = this;
+            });
+        }
+    };
+
+    return MvcDatalistAutocomplete;
+}());
+var MvcDatalist = (function () {
+    function MvcDatalist(element, options) {
+        var datalist = this;
+        var group = datalist.closestGroup(element);
+        if (group.dataset.id) {
+            return datalist.instances[parseInt(group.dataset.id)].set(options || {});
+        }
+
+        datalist.items = [];
+        datalist.events = {};
+        datalist.group = group;
+        datalist.selected = [];
+        datalist.for = group.dataset.for;
+        datalist.url = group.dataset.url;
+        datalist.multi = group.dataset.multi == 'true';
+        datalist.readonly = group.dataset.readonly == 'true';
+        datalist.group.dataset.id = datalist.instances.length;
+        datalist.options = { searchDelay: 500, loadingDelay: 300 };
+
+        datalist.search = group.querySelector('.datalist-input');
+        datalist.browser = group.querySelector('.datalist-browser');
+        datalist.control = group.querySelector('.datalist-control');
+        datalist.error = group.querySelector('.datalist-control-error');
+        datalist.valueContainer = group.querySelector('.datalist-values');
+        datalist.values = datalist.valueContainer.querySelectorAll('.datalist-value');
+
+        datalist.instances.push(datalist);
+        datalist.filter = new MvcDatalistFilter(datalist);
+        datalist.dialog = new MvcDatalistDialog(datalist);
+        datalist.autocomplete = new MvcDatalistAutocomplete(datalist);
+
+        datalist.set(options || {});
+        datalist.reload(false);
+        datalist.cleanUp();
+        datalist.bind();
+    }
+
+    MvcDatalist.prototype = {
+        instances: [],
+        lang: {
+            search: 'Search...',
+            select: 'Select ({0})',
+            noData: 'No data found',
+            error: 'Error while retrieving records'
+        },
+
+        closestGroup: function (element) {
+            var group = element;
+            while (group.parentNode && !group.classList.contains('datalist')) {
+                group = group.parentNode;
+            }
+
+            if (group == document) {
+                throw new Error('Datalist can only be created from within datalist structure.');
+            }
+
+            return group;
+        },
+
+        extend: function () {
+            var options = {};
+
+            for (var i = 0; i < arguments.length; i++) {
+                for (var key in arguments[i]) {
+                    if (arguments[i].hasOwnProperty(key)) {
+                        if (Object.prototype.toString.call(options[key]) == '[object Object]') {
+                            options[key] = this.extend(options[key], arguments[i][key]);
+                        } else {
+                            options[key] = arguments[i][key];
+                        }
+                    }
+                }
+            }
+
+            return options;
+        },
+        set: function (options) {
+            this.autocomplete.options = this.extend(this.autocomplete.options, options.autocomplete);
+            this.setReadonly(options.readonly == null ? this.readonly : options.readonly);
+            this.dialog.options = this.extend(this.dialog.options, options.dialog);
+            this.events = this.extend(this.events, options.events);
+
+            return this;
+        },
+        setReadonly: function (readonly) {
+            var datalist = this;
+            datalist.readonly = readonly;
+
+            if (readonly) {
+                datalist.search.tabIndex = -1;
+                datalist.search.readOnly = true;
+                datalist.group.classList.add('datalist-readonly');
+
+                if (datalist.browser) {
+                    datalist.browser.tabIndex = -1;
+                }
+            } else {
+                datalist.search.removeAttribute('readonly');
+                datalist.search.removeAttribute('tabindex');
+                datalist.group.classList.remove('datalist-readonly');
+
+                if (datalist.browser) {
+                    datalist.browser.removeAttribute('tabindex');
+                }
+            }
+
+            datalist.resize();
+        },
+
+        browse: function () {
             if (!this.readonly) {
+                if (this.browser) {
+                    this.browser.blur();
+                }
+
                 this.dialog.open();
             }
         },
-        selectFirst: function () {
-            var datalist = this;
-
-            $.ajax({
-                url: datalist.url + datalist.filter.getQuery({ rows: 1 }),
-                cache: false,
-                success: function (data) {
-                    datalist.stopLoading();
-
-                    datalist.select(data.Rows, true);
-                },
-                error: function () {
-                    datalist.stopLoading();
-                }
-            });
-        },
-        selectSingle: function () {
-            var datalist = this;
-
-            $.ajax({
-                url: datalist.url + datalist.filter.getQuery({ rows: 2 }),
-                cache: false,
-                success: function (data) {
-                    datalist.stopLoading();
-
-                    if (data.Rows.length == 1) {
-                        datalist.select(data.Rows, true);
-                    } else {
-                        datalist.select([], true);
-                    }
-                },
-                error: function () {
-                    datalist.stopLoading();
-                }
-            });
-        },
         reload: function (triggerChanges) {
+            var rows = [];
             var datalist = this;
-            triggerChanges = triggerChanges == null || triggerChanges;
-            var ids = $.grep(datalist.values, function (e) { return e.value; });
+            var originalValue = datalist.search.value;
+            var ids = [].filter.call(datalist.values, function (element) {
+                return element.value;
+            });
 
-            if (ids.length > 0) {
-                datalist.startLoading(300);
-                var encodedIds = ids.map(function (e) { return encodeURIComponent(e.value); });
-
-                $.ajax({
-                    url: datalist.url + datalist.filter.getQuery({ ids: '&ids=' + encodedIds.join('&ids='), rows: ids.length }),
-                    cache: false,
-                    success: function (data) {
-                        datalist.stopLoading();
-
-                        var rows = [];
-                        for (var i = 0; i < ids.length; i++) {
-                            var index = datalist.indexOf(data.Rows, ids[i].value);
-                            if (index >= 0) {
-                                rows.push(data.Rows[index]);
-                            }
+            if (ids.length) {
+                datalist.startLoading({ ids: ids, rows: ids.length, page: 0 }, function (data) {
+                    for (var i = 0; i < ids.length; i++) {
+                        var index = datalist.indexOf(data.Rows, ids[i].value);
+                        if (index >= 0) {
+                            rows.push(data.Rows[index]);
                         }
-
-                        datalist.select(rows, triggerChanges);
-                    },
-                    error: function () {
-                        datalist.stopLoading();
                     }
+
+                    datalist.select(rows, triggerChanges);
                 });
             } else {
-                datalist.select([], triggerChanges);
+                datalist.stopLoading();
+                datalist.select(rows, triggerChanges);
+
+                if (!datalist.multi && datalist.search.name) {
+                    datalist.search.value = originalValue;
+                }
             }
         },
         select: function (data, triggerChanges) {
-            if (this.events.select) {
-                var e = $.Event('select.datalist');
-                this.events.select.apply(this, [e, data, triggerChanges]);
+            var datalist = this;
+            triggerChanges = triggerChanges == null || triggerChanges;
 
-                if (e.isDefaultPrevented()) {
-                    return;
-                }
+            if (datalist.events.select && datalist.events.select.call(datalist, data, triggerChanges) === false) {
+                return;
             }
 
-            if (triggerChanges && data.length == this.selected.length) {
+            if (triggerChanges && data.length == datalist.selected.length) {
                 triggerChanges = false;
                 for (var i = 0; i < data.length && !triggerChanges; i++) {
-                    triggerChanges = data[i].DatalistIdKey != this.selected[i].DatalistIdKey;
+                    triggerChanges = data[i].Id != datalist.selected[i].Id;
                 }
             }
 
-            this.selected = data;
+            datalist.selected = data;
 
-            if (this.multi) {
-                this.search.val('');
-                this.values.remove();
-                this.control.find('.datalist-item').remove();
-                this.createSelectedItems(data).insertBefore(this.search);
+            if (datalist.multi) {
+                datalist.search.value = '';
+                datalist.valueContainer.innerHTML = '';;
+                datalist.items.forEach(function (item) {
+                    item.parentNode.removeChild(item);
+                });
 
-                this.values = this.createValues(data);
-                this.valueContainer.append(this.values);
-                this.resizeDatalistSearch();
-            } else if (data.length > 0) {
-                this.values.val(data[0].DatalistIdKey);
-                this.search.val(data[0].DatalistAcKey);
+                datalist.items = datalist.createSelectedItems(data);
+                datalist.items.forEach(function (item) {
+                    datalist.control.insertBefore(item, datalist.search);
+                });
+
+                datalist.values = datalist.createValues(data);
+                datalist.values.forEach(function (value) {
+                    datalist.valueContainer.appendChild(value);
+                });
+
+                datalist.resize();
+            } else if (data.length) {
+                datalist.values[0].value = data[0].Id;
+                datalist.search.value = data[0].Label;
             } else {
-                this.values.val('');
-                this.search.val('');
+                datalist.values[0].value = '';
+                datalist.search.value = '';
             }
 
             if (triggerChanges) {
-                this.search.change();
-                this.values.change();
+                if (typeof (Event) === 'function') {
+                    var change = new Event('change');
+                } else {
+                    var change = document.createEvent('Event');
+                    change.initEvent('change', true, true);
+                }
+
+                datalist.search.dispatchEvent(change);
+                [].forEach.call(datalist.values, function (value) {
+                    value.dispatchEvent(change);
+                });
             }
+        },
+        selectFirst: function (triggerChanges) {
+            var datalist = this;
+
+            datalist.startLoading({ search: '', rows: 1, page: 0 }, function (data) {
+                datalist.select(data.Rows, triggerChanges);
+            });
+        },
+        selectSingle: function (triggerChanges) {
+            var datalist = this;
+
+            datalist.startLoading({ search: '', rows: 2, page: 0 }, function (data) {
+                if (data.Rows.length == 1) {
+                    datalist.select(data.Rows, triggerChanges);
+                } else {
+                    datalist.select([], triggerChanges);
+                }
+            });
         },
 
         createSelectedItems: function (data) {
             var items = [];
 
             for (var i = 0; i < data.length; i++) {
-                var close = document.createElement('span');
-                close.className = 'datalist-close';
-                close.innerHTML = 'x';
+                var button = document.createElement('button');
+                button.className = 'datalist-deselect';
+                button.innerText = '×';
+                button.type = 'button';
 
                 var item = document.createElement('div');
-                item.innerText = data[i].DatalistAcKey || '';
+                item.innerText = data[i].Label || '';
                 item.className = 'datalist-item';
-                item.appendChild(close);
+                item.appendChild(button);
+                items.push(item);
 
-                this.bindDeselect($(close), data[i].DatalistIdKey);
-
-                items[i] = item;
+                this.bindDeselect(button, data[i].Id);
             }
 
-            return $(items);
+            return items;
         },
         createValues: function (data) {
             var inputs = [];
 
             for (var i = 0; i < data.length; i++) {
                 var input = document.createElement('input');
-                input.setAttribute('type', 'hidden');
-                input.setAttribute('name', this.for);
                 input.className = 'datalist-value';
-                input.value = data[i].DatalistIdKey;
+                input.value = data[i].Id;
+                input.type = 'hidden';
+                input.name = this.for;
 
-                inputs[i] = input;
+                inputs.push(input);
             }
 
-            return $(inputs);
+            return inputs;
         },
 
-        startLoading: function (delay) {
-            this.stopLoading();
+        startLoading: function (search, success, error) {
+            var datalist = this;
 
-            this.loading = setTimeout(function (datalist) {
-                datalist.search.addClass('datalist-loading');
-            }, delay, this);
+            datalist.stopLoading();
+            datalist.loading = setTimeout(function () {
+                datalist.autocomplete.hide();
+                datalist.group.classList.add('datalist-loading');
+            }, datalist.options.loadingDelay);
+            datalist.group.classList.remove('datalist-error');
+
+            datalist.request = new XMLHttpRequest();
+            datalist.request.open('GET', datalist.filter.formUrl(search), true);
+            datalist.request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+            datalist.request.onload = function () {
+                if (200 <= datalist.request.status && datalist.request.status < 400) {
+                    datalist.stopLoading();
+
+                    success(JSON.parse(datalist.request.responseText))
+                } else {
+                    datalist.request.onerror();
+                }
+            };
+
+            datalist.request.onerror = function () {
+                datalist.group.classList.add('datalist-error');
+                datalist.error.title = datalist.lang.error;
+                datalist.autocomplete.hide();
+                datalist.stopLoading();
+
+                if (error) {
+                    error();
+                }
+            };
+
+            datalist.request.send();
         },
         stopLoading: function () {
+            if (this.request && this.request.readyState != 4) {
+                this.request.abort();
+            }
+
             clearTimeout(this.loading);
-            this.search.removeClass('datalist-loading');
+            this.group.classList.remove('datalist-loading');
         },
 
         bindDeselect: function (close, id) {
             var datalist = this;
 
-            close.on('click.datalist', function () {
-                datalist.select(datalist.selected.filter(function (value) { return value.DatalistIdKey != id; }), true);
+            close.addEventListener('click', function () {
+                datalist.select(datalist.selected.filter(function (value) { return value.Id != id; }), true);
                 datalist.search.focus();
             });
         },
         indexOf: function (selection, id) {
             for (var i = 0; i < selection.length; i++) {
-                if (selection[i].DatalistIdKey == id) {
+                if (selection[i].Id == id) {
                     return i;
                 }
             }
 
             return -1;
         },
-        resizeDatalistSearch: function () {
-            var total = this.control.width();
-            var lastItem = this.control.find('.datalist-item:last');
+        cleanUp: function () {
+            var data = this.group.dataset;
 
-            if (lastItem.length > 0) {
-                var widthLeft = Math.floor(total - lastItem.position().left - lastItem.outerWidth(true));
+            delete data.readonly;
+            delete data.filters;
+            delete data.dialog;
+            delete data.search;
+            delete data.multi;
+            delete data.order;
+            delete data.title;
+            delete data.page;
+            delete data.rows;
+            delete data.sort;
+            delete data.url;
+        },
+        resize: function () {
+            var datalist = this;
 
-                if (widthLeft > total / 3) {
-                    this.search.outerWidth(widthLeft, true);
+            if (datalist.items.length) {
+                var style = getComputedStyle(datalist.control);
+                var contentWidth = datalist.control.clientWidth;
+                var lastItem = datalist.items[datalist.items.length - 1];
+                contentWidth -= parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+                var widthLeft = Math.floor(contentWidth - lastItem.offsetLeft - lastItem.offsetWidth);
+
+                if (widthLeft > contentWidth / 3) {
+                    style = getComputedStyle(datalist.search);
+                    widthLeft -= parseFloat(style.marginLeft) + parseFloat(style.marginRight) + 4;
+                    datalist.search.style.width = widthLeft + 'px';
                 } else {
-                    this.search.css('width', '');
+                    datalist.search.style.width = '';
                 }
             } else {
-                this.search.css('width', '');
+                datalist.search.style.width = '';
             }
-        },
-        cleanUp: function () {
-            this.group.removeAttr('data-readonly');
-            this.group.removeAttr('data-filters');
-            this.group.removeAttr('data-dialog');
-            this.group.removeAttr('data-search');
-            this.group.removeAttr('data-multi');
-            this.group.removeAttr('data-order');
-            this.group.removeAttr('data-title');
-            this.group.removeAttr('data-page');
-            this.group.removeAttr('data-rows');
-            this.group.removeAttr('data-sort');
-            this.group.removeAttr('data-url');
         },
         bind: function () {
             var datalist = this;
 
-            $(window).on('resize.datalist', function () {
-                datalist.resizeDatalistSearch();
+            window.addEventListener('resize', function () {
+                datalist.resize();
             });
 
-            datalist.group.on('focusin.datalist', function () {
-                $(this).addClass('datalist-focus');
+            datalist.search.addEventListener('focus', function () {
+                datalist.group.classList.add('datalist-focus');
             });
 
-            datalist.group.on('focusout.datalist', function () {
-                $(this).removeClass('datalist-focus');
-            });
+            datalist.search.addEventListener('blur', function () {
+                datalist.stopLoading();
+                datalist.autocomplete.hide();
+                datalist.group.classList.remove('datalist-focus');
 
-            datalist.search.on('keydown.datalist', function (e) {
-                if (e.which == 8 && this.value.length == 0 && datalist.selected.length > 0) {
-                    datalist.select(datalist.selected.slice(0, -1), true);
-                }
-            });
-            datalist.search.on('keyup.datalist', function (e) {
-                if (!datalist.multi && e.which != 9 && this.value.length == 0 && datalist.selected.length > 0) {
-                    datalist.select([], true);
-                }
-            });
-            datalist.search.on('blur.datalist', function () {
+                var originalValue = this.value;
                 if (!datalist.multi && datalist.selected.length) {
-                    this.value = datalist.selected[0].DatalistAcKey;
+                    if (datalist.selected[0].Label != this.value) {
+                        datalist.select([], true);
+                    }
                 } else {
                     this.value = '';
                 }
+
+                if (!datalist.multi && datalist.search.name) {
+                    this.value = originalValue;
+                }
             });
 
-            datalist.browse.on('click.datalist', function () {
-                datalist.open();
-            });
+            datalist.search.addEventListener('keydown', function (e) {
+                if (e.which == 8 && !this.value.length && datalist.selected.length) {
+                    datalist.select(datalist.selected.slice(0, -1), true);
+                } else if (e.which == 38) {
+                    e.preventDefault();
 
-            var filters = datalist.filter.additionalFilters;
-            for (var i = 0; i < filters.length; i++) {
-                $('[name="' + filters[i] + '"]').on('change.datalist', function (e) {
-                    if (datalist.events.filterChange) {
-                        datalist.events.filterChange.apply(datalist, [e]);
+                    datalist.autocomplete.previous();
+                } else if (e.which == 40) {
+                    e.preventDefault();
+
+                    datalist.autocomplete.next();
+                } else if (e.which == 13 && datalist.autocomplete.activeItem) {
+                    if (typeof (Event) === 'function') {
+                        var click = new Event('click');
+                    } else {
+                        var click = document.createEvent('Event');
+                        click.initEvent('click', true, true);
                     }
 
-                    if (!e.isDefaultPrevented() && datalist.selected.length > 0) {
-                        datalist.startLoading(300);
-                        var ids = $.grep(datalist.values, function (e) { return e.value; });
-                        var encodedIds = ids.map(function (e) { return encodeURIComponent(e.value); });
+                    datalist.autocomplete.activeItem.dispatchEvent(click);
+                }
+            });
+            datalist.search.addEventListener('input', function () {
+                if (!this.value.length && !datalist.multi && datalist.selected.length) {
+                    datalist.autocomplete.hide();
+                    datalist.select([], true);
+                }
 
-                        $.ajax({
-                            url: datalist.url + datalist.filter.getQuery({ checkIds: '&checkIds=' + encodedIds.join('&checkIds='), rows: ids.length }),
-                            cache: false,
-                            success: function (data) {
-                                datalist.stopLoading();
+                datalist.autocomplete.search(this.value);
+            });
 
-                                var rows = [];
+            if (datalist.browser) {
+                datalist.browser.addEventListener('click', function () {
+                    datalist.browse();
+                });
+            }
+
+            for (var i = 0; i < datalist.filter.additional.length; i++) {
+                var inputs = document.querySelectorAll('[name="' + datalist.filter.additional[i] + '"]');
+
+                for (var j = 0; j < inputs.length; j++) {
+                    inputs[j].addEventListener('change', function () {
+                        datalist.stopLoading();
+                        datalist.filter.page = 0;
+
+                        if (datalist.events.filterChange && datalist.events.filterChange.call(datalist, this) === false) {
+                            return;
+                        }
+
+                        if (datalist.selected.length) {
+                            var rows = [];
+                            var ids = [].filter.call(datalist.values, function (element) { return element.value; });
+
+                            datalist.startLoading({ checkIds: ids, rows: ids.length }, function (data) {
                                 for (var i = 0; i < ids.length; i++) {
                                     var index = datalist.indexOf(data.Rows, ids[i].value);
                                     if (index >= 0) {
@@ -782,73 +1027,15 @@ var MvcDatalist = (function () {
                                 }
 
                                 datalist.select(rows, true);
-                            },
-                            error: function () {
-                                datalist.select([], true);
-                                datalist.stopLoading();
-                            }
-                        });
-                    }
-                });
+                            }, function () {
+                                datalist.select(rows, true);
+                            });
+                        }
+                    });
+                }
             }
         }
     };
 
     return MvcDatalist;
 }());
-
-$.fn.datalist = function (options) {
-    var args = arguments;
-
-    if (options === 'instance') {
-        var instances = [];
-
-        for (var i = 0; i < this.length; i++) {
-            var datalist = $(this[i]).closest('.datalist');
-            if (!datalist.length)
-                continue;
-
-            var instance = datalist.data('mvc-datalist');
-
-            if (!instance) {
-                datalist.data('mvc-datalist', instance = new MvcDatalist(datalist, options));
-            }
-
-            instances.push(instance);
-        }
-
-        return this.length <= 1 ? instances[0] : instances;
-    }
-
-    return this.each(function () {
-        var datalist = $(this).closest('.datalist');
-        if (!datalist.length)
-            return;
-
-        var instance = datalist.data('mvc-datalist');
-
-        if (!instance) {
-            if (typeof options == 'string') {
-                instance = new MvcDatalist(datalist);
-                instance.methods[options].apply(instance, [].slice.call(args, 1));
-            } else {
-                instance = new MvcDatalist(datalist, options);
-            }
-
-            datalist.data('mvc-datalist', instance);
-        } else {
-            if (typeof options == 'string') {
-                instance.methods[options].apply(instance, [].slice.call(args, 1));
-            } else if (options) {
-                instance.set(options);
-            }
-        }
-    });
-};
-
-$.fn.datalist.lang = {
-    Error: 'Error while retrieving records',
-    NoData: 'No data found',
-    Select: 'Select ({0})',
-    Search: 'Search...'
-};

@@ -246,9 +246,12 @@
 
 // Datalist binding
 (function () {
-    if ($.fn.datalist) {
-        $.fn.datalist.lang = window.cultures.datalist[$('html').attr('lang')];
-        $('.datalist').datalist();
+    if (window.MvcDatalist) {
+        MvcDatalist.prototype.lang = window.cultures.datalist[$('html').attr('lang')];
+
+        [].forEach.call(document.getElementsByClassName('datalist'), function (element) {
+            new MvcDatalist(element);
+        });
     }
 })();
 
@@ -261,7 +264,7 @@
     var widgets = $('.widget-box.readonly');
     widgets.find('input').attr({ readonly: 'readonly', tabindex: -1 });
     widgets.find('textarea').attr({ readonly: 'readonly', tabindex: -1 });
-    if ($.fn.datalist) { widgets.find('.datalist').datalist({ readonly: true }); }
+    if (window.MvcDatalist) { widgets.find('.datalist').each(function (element) { new MvcDatalist(element, { readonly: true }); }); }
 })();
 
 // Input focus binding

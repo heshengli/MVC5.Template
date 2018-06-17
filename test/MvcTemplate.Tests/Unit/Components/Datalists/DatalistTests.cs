@@ -1,5 +1,4 @@
-﻿using Datalist;
-using MvcTemplate.Components.Datalists;
+﻿using MvcTemplate.Components.Datalists;
 using MvcTemplate.Data.Core;
 using MvcTemplate.Objects;
 using MvcTemplate.Resources;
@@ -52,7 +51,7 @@ namespace MvcTemplate.Tests.Unit.Components.Datalists
         {
             datalist = new MvcDatalist<Role, RoleView>(url);
 
-            String expected = url.Action(typeof(Role).Name, MvcDatalist.Prefix, new { area = "" });
+            String expected = url.Action(typeof(Role).Name, "Datalist", new { area = "" });
             String actual = datalist.Url;
 
             Assert.Equal(expected, actual);

@@ -22,7 +22,7 @@ namespace MvcTemplate.Components.Datalists
         public MvcDatalist(UrlHelper url)
         {
             String view = typeof(TView).Name.Replace("View", "");
-            Url = url.Action(view, Prefix, new { area = "" });
+            Url = url.Action(view, "Datalist", new { area = "" });
             Title = ResourceProvider.GetDatalistTitle(view);
         }
 
