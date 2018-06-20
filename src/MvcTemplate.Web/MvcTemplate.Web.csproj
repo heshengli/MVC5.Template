@@ -253,7 +253,6 @@
     <Content Include="Content\Shared\widget-box.css">
       <DependentUpon>widget-box.less</DependentUpon>
     </Content>
-    <Content Include="Content\theme.less" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Scripts\Bootstrap\bootstrap.bundle.js" />
@@ -275,8 +274,14 @@
     <Content Include="Scripts\JQueryUI\jquery-ui.timepicker-addon.js" />
     <Content Include="Scripts\JsTree\jstree.js" />
     <Content Include="Scripts\Shared\site.js" />
-    <Content Include="Scripts\Shared\Widgets\menu.js" />
     <Content Include="Scripts\Shared\Widgets\alerts.js" />
+    <Content Include="Scripts\Shared\Widgets\datalist.js" />
+    <Content Include="Scripts\Shared\Widgets\datepicker.js" />
+    <Content Include="Scripts\Shared\Widgets\grid.js" />
+    <Content Include="Scripts\Shared\Widgets\header.js" />
+    <Content Include="Scripts\Shared\Widgets\jstree.js" />
+    <Content Include="Scripts\Shared\Widgets\menu.js" />
+    <Content Include="Scripts\Shared\Widgets\validator.js" />
     <None Include="Scripts\_references.js" />
   </ItemGroup>
   <ItemGroup>
