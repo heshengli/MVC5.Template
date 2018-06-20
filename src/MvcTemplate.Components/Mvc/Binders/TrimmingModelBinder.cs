@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Datalist;
+using System;
 using System.Reflection;
 using System.Web.Mvc;
 
@@ -13,6 +14,9 @@ namespace MvcTemplate.Components.Mvc
 
             if (!String.IsNullOrEmpty(value) && container != null)
             {
+                if (container == typeof(DatalistFilter))
+                    return value;
+
                 PropertyInfo property = container.GetProperty(binding.ModelMetadata.PropertyName);
                 if (property.IsDefined(typeof(NotTrimmedAttribute), false))
                     return value;

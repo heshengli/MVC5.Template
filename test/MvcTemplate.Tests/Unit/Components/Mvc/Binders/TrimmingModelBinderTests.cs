@@ -1,4 +1,5 @@
-﻿using MvcTemplate.Components.Mvc;
+﻿using Datalist;
+using MvcTemplate.Components.Mvc;
 using MvcTemplate.Tests.Objects;
 using NSubstitute;
 using System;
@@ -18,17 +19,32 @@ namespace MvcTemplate.Tests.Unit.Components.Mvc
         public TrimmingModelBinderTests()
         {
             context = new ControllerContext();
-            binding = new ModelBindingContext();
-            binding.ModelName = "StringField";
-            collection = new NameValueCollection();
             binder = new TrimmingModelBinder();
+            binding = new ModelBindingContext();
+            collection = new NameValueCollection();
 
+            binding.ModelName = "StringField";
             context.Controller = Substitute.For<ControllerBase>();
             binding.ModelMetadata = new DataAnnotationsModelMetadataProvider()
                 .GetMetadataForProperty(null, typeof(AllTypesView), "StringField");
         }
 
         #region BindModel(ControllerContext context, ModelBindingContext binding)
+
+        [Fact]
+        public void BindModel_DatalistFilter_ReturnsNull()
+        {
+            binding.ModelName = "Search";
+            collection.Add(binding.ModelName, "  Trimmed text  ");
+            binding.ModelMetadata = new DataAnnotationsModelMetadataProvider()
+                .GetMetadataForProperty(null, typeof(DatalistFilter), "Search");
+            binding.ValueProvider = new NameValueCollectionValueProvider(collection, null);
+
+            Object actual = binder.BindModel(context, binding);
+            Object expected = "  Trimmed text  ";
+
+            Assert.Equal(expected, actual);
+        }
 
         [Fact]
         public void BindModel_NullValue_ReturnsNull()
